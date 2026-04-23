@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>VidDrop — Video Downloader</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #13131a;
+    --border: #1e1e2e;
+    --accent: #00f5a0;
+    --accent2: #00d9f5;
+    --danger: #ff4d6d;
+    --text: #e8e8f0;
+    --muted: #555570;
+    --glow: 0 0 30px rgba(0,245,160,0.25);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+    position: relative;
+  }
+
+  /* Animated grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,245,160,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,245,160,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    animation: gridMove 20s linear infinite;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  @keyframes gridMove {
+    0% { transform: translateY(0); }
+    100% { transform: translateY(40px); }
+  }
+
+  /* Floating orbs */
+  .orb {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.12;
+    pointer-events: none;
+    z-index: 0;
+    animation: orbFloat 8s ease-in-out infinite;
+  }
+  .orb1 { width: 400px; height: 400px; background: var(--accent); top: -100px; left: -100px; animation-delay: 0s; }
+  .orb2 { width: 300px; height: 300px; background: var(--accent2); bottom: -50px; right: -50px; animation-delay: -4s; }
+  .orb3 { width: 200px; height: 200px; background: #a855f7; top: 50%; left: 50%; animation-delay: -2s; }
+
+  @keyframes orbFloat {
+    0%, 100% { transform: translateY(0) scale(1); }
+    50% { transform: translateY(-30px) scale(1.05); }
+  }
+
+  .container {
+    position: relative;
+    z-index: 1;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+  }
+
+  /* Header */
+  .header {
+    text-align: center;
+    margin-bottom: 48px;
+    animation: fadeDown 0.8s ease both;
+  }
+
+  @keyframes fadeDown {
+    from { opacity: 0; transform: translateY(-20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .logo {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(42px, 8vw, 72px);
+    font-weight: 800;
+    line-height: 1;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: -2px;
+  }
+
+  .tagline {
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 13px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+  }
+
+  /* Card */
+  .card {
+    width: 100%;
+    max-width: 640px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 36px;
+    animation: fadeUp 0.8s ease 0.2s both;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(30px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Input area */
+  .input-label {
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 10px;
+    display: block;
+  }
+
+  .input-wrapper {
+    position: relative;
+    margin-bottom: 28px;
+  }
+
+  .url-input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 50px 16px 18px;
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.3s, box-shadow 0.3s;
+  }
+
+  .url-input::placeholder { color: var(--muted); }
+
+  .url-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(0,245,160,0.08);
+  }
+
+  .clear-btn {
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 18px;
+    padding: 4px;
+    transition: color 0.2s;
+    display: none;
+  }
+  .clear-btn:hover { color: var(--text); }
+  .clear-btn.visible { display: block; }
+
+  /* Buttons */
+  .btn-group {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+
+  .btn {
+    position: relative;
+    border: none;
+    border-radius: 12px;
+    padding: 16px 20px;
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    overflow: hidden;
+    letter-spacing: 0.5px;
+  }
+
+  .btn::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: white;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .btn:active::after { opacity: 0.05; }
+
+  .btn-download {
+    background: linear-gradient(135deg, var(--accent), #00c87a);
+    color: #0a0a0f;
+  }
+  .btn-download:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0,245,160,0.3);
+  }
+
+  .btn-link {
+    background: transparent;
+    border: 1px solid var(--accent2);
+    color: var(--accent2);
+  }
+  .btn-link:hover {
+    background: rgba(0,217,245,0.08);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0,217,245,0.15);
+  }
+
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none !important;
+    box-shadow: none !important;
+  }
+
+  /* Phone link box */
+  .phone-link-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 20px;
+    display: none;
+    animation: fadeUp 0.4s ease both;
+  }
+  .phone-link-box.visible { display: block; }
+
+  .phone-link-label {
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--accent2);
+    margin-bottom: 10px;
+  }
+
+  .phone-link-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .phone-link-text {
+    flex: 1;
+    background: none;
+    border: none;
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    outline: none;
+    cursor: text;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .copy-btn {
+    background: rgba(0,217,245,0.1);
+    border: 1px solid rgba(0,217,245,0.3);
+    border-radius: 8px;
+    color: var(--accent2);
+    padding: 6px 14px;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .copy-btn:hover { background: rgba(0,217,245,0.2); }
+  .copy-btn.copied { color: var(--accent); border-color: var(--accent); }
+
+  /* Status / Progress area */
+  .status-area {
+    min-height: 60px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+  }
+
+  .status-text {
+    font-size: 12px;
+    color: var(--muted);
+    text-align: center;
+    letter-spacing: 1px;
+  }
+
+  .status-text.active { color: var(--accent); }
+  .status-text.error { color: var(--danger); }
+  .status-text.success { color: var(--accent); }
+
+  /* Download animation */
+  .download-animation {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+  }
+  .download-animation.visible { display: flex; }
+
+  /* Waveform bars */
+  .waveform {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 40px;
+  }
+
+  .wave-bar {
+    width: 4px;
+    border-radius: 2px;
+    background: var(--accent);
+    animation: wave 1.2s ease-in-out infinite;
+  }
+
+  .wave-bar:nth-child(1) { animation-delay: 0s; }
+  .wave-bar:nth-child(2) { animation-delay: 0.1s; }
+  .wave-bar:nth-child(3) { animation-delay: 0.2s; }
+  .wave-bar:nth-child(4) { animation-delay: 0.3s; }
+  .wave-bar:nth-child(5) { animation-delay: 0.4s; }
+  .wave-bar:nth-child(6) { animation-delay: 0.5s; }
+  .wave-bar:nth-child(7) { animation-delay: 0.4s; }
+  .wave-bar:nth-child(8) { animation-delay: 0.3s; }
+  .wave-bar:nth-child(9) { animation-delay: 0.2s; }
+  .wave-bar:nth-child(10) { animation-delay: 0.1s; }
+
+  @keyframes wave {
+    0%, 100% { height: 6px; opacity: 0.4; }
+    50% { height: 36px; opacity: 1; }
+  }
+
+  /* Progress bar */
+  .progress-track {
+    width: 100%;
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.5s ease;
+    position: relative;
+  }
+
+  .progress-fill::after {
+    content: '';
+    position: absolute;
+    right: 0; top: 0; bottom: 0;
+    width: 20px;
+    background: white;
+    opacity: 0.4;
+    filter: blur(4px);
+  }
+
+  /* Progress indeterminate */
+  .progress-indeterminate .progress-fill {
+    width: 100% !important;
+    animation: indeterminate 1.5s ease-in-out infinite;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  }
+
+  @keyframes indeterminate {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+
+  .progress-text {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 1px;
+  }
+
+  /* Log output */
+  .log-box {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    max-height: 80px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .log-line {
+    font-size: 10px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.6;
+  }
+
+  .log-line.highlight { color: var(--accent); }
+
+  /* Success state */
+  .success-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: rgba(0,245,160,0.1);
+    border: 2px solid var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    animation: popIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+
+  @keyframes popIn {
+    from { transform: scale(0); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
+
+  /* Divider */
+  .divider {
+    height: 1px;
+    background: var(--border);
+    margin: 24px 0;
+  }
+
+  /* Footer */
+  .footer {
+    margin-top: 32px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 11px;
+    letter-spacing: 1px;
+    animation: fadeUp 0.8s ease 0.4s both;
+  }
+
+  .footer span {
+    color: var(--accent);
+  }
+
+  /* IP display */
+  .ip-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0,245,160,0.05);
+    border: 1px solid rgba(0,245,160,0.15);
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 10px;
+    color: var(--accent);
+    margin-top: 8px;
+    letter-spacing: 1px;
+  }
+
+  .ip-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+  }
+
+  /* Ripple on buttons */
+  @keyframes ripple {
+    from { transform: scale(0); opacity: 0.4; }
+    to { transform: scale(4); opacity: 0; }
+  }
+
+  .ripple-effect {
+    position: absolute;
+    border-radius: 50%;
+    background: white;
+    width: 60px; height: 60px;
+    margin-left: -30px; margin-top: -30px;
+    animation: ripple 0.6s linear;
+    pointer-events: none;
+  }
+
+  /* Scanning line animation on card during download */
+  .card.downloading::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    animation: scan 2s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  @keyframes scan {
+    0% { top: 0; opacity: 0; }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { top: 100%; opacity: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="orb orb1"></div>
+<div class="orb orb2"></div>
+<div class="orb orb3"></div>
+
+<div class="container">
+  <div class="header">
+    <div class="logo">VidDrop</div>
+    <div class="tagline">Download anything · Anywhere · Anytime</div>
+  </div>
+
+  <div class="card" id="mainCard">
+    <label class="input-label">// paste video url</label>
+    <div class="input-wrapper">
+      <input
+        type="text"
+        class="url-input"
+        id="urlInput"
+        placeholder="https://www.youtube.com/watch?v=..."
+        oninput="onInputChange()"
+      />
+      <button class="clear-btn" id="clearBtn" onclick="clearInput()">×</button>
+    </div>
+
+    <div class="btn-group">
+      <button class="btn btn-download" id="downloadBtn" onclick="startDownload()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Download
+      </button>
+      <button class="btn btn-link" id="linkBtn" onclick="generatePhoneLink()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+        Phone Link
+      </button>
+    </div>
+
+    <!-- Phone link box -->
+    <div class="phone-link-box" id="phoneLinkBox">
+      <div class="phone-link-label">// open this on your phone (same wifi)</div>
+      <div class="phone-link-row">
+        <input type="text" class="phone-link-text" id="phoneLinkText" readonly />
+        <button class="copy-btn" id="copyBtn" onclick="copyLink()">Copy</button>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Status area -->
+    <div class="status-area" id="statusArea">
+      <div class="status-text" id="statusText">ready to download</div>
+    </div>
+
+    <!-- Download animation -->
+    <div class="download-animation" id="downloadAnim">
+      <div class="waveform">
+        <div class="wave-bar"></div>
+        <div class="wave-bar"></div>
+        <div class="wave-bar"></div>
+        <div class="wave-bar"></div>
+        <div class="wave-bar"></div>
+        <div class="wave-bar"></div>
+        <div class="wave-bar"></div>
+        <div class="wave-bar"></div>
+        <div class="wave-bar"></div>
+        <div class="wave-bar"></div>
+      </div>
+      <div class="progress-track progress-indeterminate" id="progressTrack">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+      <div class="progress-text" id="progressText">initializing...</div>
+      <div class="log-box">
+        <div class="log-line" id="logLine1"></div>
+        <div class="log-line" id="logLine2"></div>
+        <div class="log-line highlight" id="logLine3"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="footer">
+    powered by <span>yt-dlp</span> + <span>Spring Boot</span>
+    <br/>
+    <div class="ip-badge">
+      <div class="ip-dot"></div>
+      <span id="serverStatus">connecting to localhost:8080</span>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Config - change this IP for phone access
+  const SERVER_IP = window.location.hostname === 'localhost' ? 'localhost' : window.location.hostname;
+  const SERVER_URL = `http://${SERVER_IP}:8080`;
+
+  let isDownloading = false;
+  let logLines = [];
+
+  // Update server status
+  document.getElementById('serverStatus').textContent = `server: ${SERVER_IP}:8080`;
+
+  function onInputChange() {
+    const val = document.getElementById('urlInput').value;
+    document.getElementById('clearBtn').classList.toggle('visible', val.length > 0);
+    // hide phone link if url changes
+    if (!val) {
+      document.getElementById('phoneLinkBox').classList.remove('visible');
+    }
+  }
+
+  function clearInput() {
+    document.getElementById('urlInput').value = '';
+    document.getElementById('clearBtn').classList.remove('visible');
+    document.getElementById('phoneLinkBox').classList.remove('visible');
+    resetStatus();
+  }
+
+  function resetStatus() {
+    document.getElementById('statusArea').style.display = 'flex';
+    document.getElementById('downloadAnim').classList.remove('visible');
+    document.getElementById('mainCard').classList.remove('downloading');
+    setStatus('ready to download', '');
+    isDownloading = false;
+    setButtonsDisabled(false);
+  }
+
+  function setStatus(msg, type) {
+    const el = document.getElementById('statusText');
+    el.textContent = msg;
+    el.className = 'status-text' + (type ? ' ' + type : '');
+  }
+
+  function setButtonsDisabled(disabled) {
+    document.getElementById('downloadBtn').disabled = disabled;
+    document.getElementById('linkBtn').disabled = disabled;
+  }
+
+  function addRipple(btn, e) {
+    const ripple = document.createElement('span');
+    ripple.classList.add('ripple-effect');
+    const rect = btn.getBoundingClientRect();
+    ripple.style.left = (e.clientX - rect.left) + 'px';
+    ripple.style.top = (e.clientY - rect.top) + 'px';
+    btn.appendChild(ripple);
+    setTimeout(() => ripple.remove(), 600);
+  }
+
+  function showDownloadAnimation() {
+    document.getElementById('statusArea').style.display = 'none';
+    document.getElementById('downloadAnim').classList.add('visible');
+    document.getElementById('mainCard').classList.add('downloading');
+    document.getElementById('progressTrack').classList.add('progress-indeterminate');
+  }
+
+  function updateLog(line) {
+    logLines.push(line);
+    if (logLines.length > 3) logLines.shift();
+    const ids = ['logLine1', 'logLine2', 'logLine3'];
+    logLines.forEach((l, i) => {
+      if (document.getElementById(ids[i])) {
+        document.getElementById(ids[i]).textContent = l;
+      }
+    });
+
+    // Extract progress percentage if available
+    const match = line.match(/(\d+\.?\d*)%/);
+    if (match) {
+      const pct = parseFloat(match[1]);
+      document.getElementById('progressTrack').classList.remove('progress-indeterminate');
+      document.getElementById('progressFill').style.width = pct + '%';
+      document.getElementById('progressText').textContent = `downloading... ${pct.toFixed(1)}%`;
+    } else if (line.includes('Merging')) {
+      document.getElementById('progressText').textContent = 'merging video + audio...';
+    } else if (line.includes('Extracting')) {
+      document.getElementById('progressText').textContent = 'extracting url...';
+    } else if (line.includes('Downloading')) {
+      document.getElementById('progressText').textContent = 'fetching stream...';
+    }
+  }
+
+  function showSuccess() {
+    document.getElementById('downloadAnim').classList.remove('visible');
+    document.getElementById('mainCard').classList.remove('downloading');
+    document.getElementById('statusArea').style.display = 'flex';
+    document.getElementById('statusArea').innerHTML = `
+      <div class="success-icon">✓</div>
+      <div class="status-text success">download complete!</div>
+    `;
+    isDownloading = false;
+    setButtonsDisabled(false);
+
+    // Reset after 4 seconds
+    setTimeout(() => {
+      document.getElementById('statusArea').innerHTML = `
+        <div class="status-text" id="statusText">ready to download</div>
+      `;
+    }, 4000);
+  }
+
+  function showError(msg) {
+    document.getElementById('downloadAnim').classList.remove('visible');
+    document.getElementById('mainCard').classList.remove('downloading');
+    document.getElementById('statusArea').style.display = 'flex';
+    document.getElementById('statusArea').innerHTML = `
+      <div class="status-text error">✗ ${msg}</div>
+    `;
+    isDownloading = false;
+    setButtonsDisabled(false);
+
+    setTimeout(() => {
+      document.getElementById('statusArea').innerHTML = `
+        <div class="status-text" id="statusText">ready to download</div>
+      `;
+    }, 4000);
+  }
+
+  // ✅ DOWNLOAD to PC
+  async function startDownload(e) {
+    if (e) addRipple(document.getElementById('downloadBtn'), e);
+
+    const url = document.getElementById('urlInput').value.trim();
+    if (!url) {
+      showError('please paste a video url first');
+      return;
+    }
+    if (isDownloading) return;
+    isDownloading = true;
+    logLines = [];
+    setButtonsDisabled(true);
+    showDownloadAnimation();
+    document.getElementById('progressText').textContent = 'connecting to server...';
+
+    try {
+      // Use SSE stream endpoint to show progress
+      const streamUrl = `${SERVER_URL}/api/video/download/stream?url=${encodeURIComponent(url)}`;
+      const eventSource = new EventSource(streamUrl);
+
+      eventSource.onmessage = (event) => {
+        updateLog(event.data);
+      };
+
+      eventSource.onerror = () => {
+        eventSource.close();
+        // After stream completes, trigger actual file download
+        triggerFileDownload(url);
+      };
+
+    } catch (err) {
+      showError('connection failed — is Spring Boot running?');
+    }
+  }
+
+  function triggerFileDownload(url) {
+    document.getElementById('progressText').textContent = 'preparing file...';
+    const downloadUrl = `${SERVER_URL}/api/video/download?url=${encodeURIComponent(url)}`;
+
+    // Create invisible anchor to trigger download
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+
+    setTimeout(() => showSuccess(), 1500);
+  }
+
+  // ✅ GENERATE PHONE LINK
+  function generatePhoneLink(e) {
+    if (e) addRipple(document.getElementById('linkBtn'), e);
+
+    const url = document.getElementById('urlInput').value.trim();
+    if (!url) {
+      showError('please paste a video url first');
+      return;
+    }
+
+    // Get local IP - user needs to use their PC's IP
+    // We show instructions and a link using current hostname
+    const phoneUrl = `${SERVER_URL}/api/video/download?url=${encodeURIComponent(url)}`;
+
+    document.getElementById('phoneLinkText').value = phoneUrl;
+    document.getElementById('phoneLinkBox').classList.add('visible');
+    document.getElementById('copyBtn').textContent = 'Copy';
+    document.getElementById('copyBtn').classList.remove('copied');
+
+    setStatus('open this link on your phone (same wifi)', 'active');
+  }
+
+  function copyLink() {
+    const text = document.getElementById('phoneLinkText').value;
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = document.getElementById('copyBtn');
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(() => {
+        btn.textContent = 'Copy';
+        btn.classList.remove('copied');
+      }, 2000);
+    });
+  }
+
+  // Add click handlers with ripple
+  document.getElementById('downloadBtn').addEventListener('click', function(e) {
+    startDownload(e);
+  });
+
+  document.getElementById('linkBtn').addEventListener('click', function(e) {
+    generatePhoneLink(e);
+  });
+
+  // Allow Enter key to trigger download
+  document.getElementById('urlInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') startDownload();
+  });
+</script>
+</body>
+</html>
+```
