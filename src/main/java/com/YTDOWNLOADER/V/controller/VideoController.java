@@ -20,10 +20,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -58,12 +55,21 @@ public class VideoController {
     @GetMapping("/info")
     public ResponseEntity<?> getInfo(@RequestParam String url) {
         try {
-            Map<String, Object> info = service.getVideoInfo(url);
-            double seconds = ((Number) info.getOrDefault("duration", 0)).intValue();
-            String formattedDuration = (seconds / 60) + " Min";
+            LinkedHashMap<String, Object> info = (LinkedHashMap<String, Object>) service.getVideoInfo(url);
+
+            int seconds = ((Number) info.getOrDefault("duration", 0)).intValue();
+
+            int minutes = seconds / 60;
+            int remainingSeconds = seconds % 60;
+
+            String duration = minutes + " Min " + remainingSeconds + " Sec";
+
             return ResponseEntity.ok(Map.of(
-                    "title",    info.get("title"),
-                    "duration", formattedDuration
+                    "title", info.get("title"),
+                    "duration", duration,
+                    "uploader", info.getOrDefault("uploader", "N/A"),
+                    "format", info.getOrDefault("ext", "mp4"),
+                    "filesize", info.getOrDefault("filesize", "unknown")
             ));
         } catch (Exception e) {
             e.printStackTrace();
