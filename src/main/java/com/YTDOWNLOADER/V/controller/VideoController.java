@@ -18,6 +18,9 @@ import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
@@ -32,7 +35,21 @@ public class VideoController {
     private static final String YT_DLP_PATH = "C:/Users/patil/AppData/Local/Microsoft/WinGet/Packages/yt-dlp.yt-dlp_Microsoft.Winget.Source_8wekyb3d8bbwe/yt-dlp.exe";
     private static final String FFMPEG_PATH = "C:/Users/patil/AppData/Local/Microsoft/WinGet/Packages/yt-dlp.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-N-123778-g3b55818764-win64-gpl/bin/ffmpeg.exe";
 
-    // ✅ Endpoint 1 - Get video info
+    // ✅ [CHANGE 1] Helper to detect cookie-related failure from yt-dlp output lines
+    private boolean requiresCookies(String output) {
+        String lowerOutput = output.toLowerCase();
+        return lowerOutput.contains("sign in")
+                || lowerOutput.contains("login")
+                || lowerOutput.contains("cookies")
+                || lowerOutput.contains("this video is private")
+                || lowerOutput.contains("age-restricted")
+                || lowerOutput.contains("members only")
+                || lowerOutput.contains("http error 403")
+                || lowerOutput.contains("confirm your age")
+                || lowerOutput.contains("private video");
+    }
+
+    // ✅ Endpoint 1 - Get video info (delegates to service which handles cookie fallback)
     @GetMapping("/info")
     public ResponseEntity<?> getInfo(@RequestParam String url) {
         try {
@@ -40,8 +57,8 @@ public class VideoController {
             double seconds = ((Number) info.getOrDefault("duration", 0)).intValue();
             String formattedDuration = (seconds / 60) + " Min";
             return ResponseEntity.ok(Map.of(
-                    "title",     info.get("title"),
-                    "duration",  formattedDuration
+                    "title",    info.get("title"),
+                    "duration", formattedDuration
             ));
         } catch (Exception e) {
             e.printStackTrace();
@@ -49,7 +66,7 @@ public class VideoController {
         }
     }
 
-    // ✅ Endpoint 2 - Download video (returns file)
+    // ✅ Endpoint 2 - Download video (delegates to service which handles cookie fallback)
     @GetMapping("/download")
     public ResponseEntity<Resource> download(
             @RequestParam String url,
@@ -81,7 +98,7 @@ public class VideoController {
         }
     }
 
-    // ✅ Endpoint 3 - SSE streaming with live progress
+    // ✅ Endpoint 3 - SSE streaming with live progress + cookie fallback
     @GetMapping(value = "/download/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter downloadWithProgress(@RequestParam String url) {
         SseEmitter emitter = new SseEmitter(300_000L);
@@ -90,7 +107,8 @@ public class VideoController {
             try {
                 System.out.println("Stream download started for: " + url);
 
-                ProcessBuilder pb = new ProcessBuilder(
+                // ✅ [CHANGE 2] Build base command WITHOUT cookies first
+                List<String> command = new ArrayList<>(Arrays.asList(
                         YT_DLP_PATH,
                         "--format", "bestvideo+bestaudio/best",
                         "--merge-output-format", "mp4",
@@ -98,20 +116,71 @@ public class VideoController {
                         "--newline", "--progress",
                         "-o", DOWNLOAD_DIR + "%(title)s.%(ext)s",
                         url
-                );
+                ));
+
+                ProcessBuilder pb = new ProcessBuilder(command);
                 pb.redirectErrorStream(true);
                 Process process = pb.start();
 
+                // ✅ [CHANGE 3] Collect all output lines AND stream them to SSE client
+                StringBuilder fullOutput = new StringBuilder();
                 try (BufferedReader reader = new BufferedReader(
                         new InputStreamReader(process.getInputStream()))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
                         System.out.println("Progress: " + line);
+                        fullOutput.append(line).append("\n");
                         emitter.send(SseEmitter.event().data(line));
                     }
                 }
 
-                process.waitFor();
+                int exitCode = process.waitFor();
+
+                // ✅ [CHANGE 4] If first attempt failed due to cookies, retry with Chrome cookies
+                if (exitCode != 0 && requiresCookies(fullOutput.toString())) {
+                    System.out.println("Stream download failed due to cookies. Retrying with Chrome cookies...");
+                    emitter.send(SseEmitter.event().data("[INFO] Authentication required. Retrying with Chrome cookies..."));
+
+                    // ✅ [CHANGE 5] New command WITH --cookies-from-browser chrome
+                    List<String> commandWithCookies = new ArrayList<>(Arrays.asList(
+                            YT_DLP_PATH,
+                            "--format", "bestvideo+bestaudio/best",
+                            "--merge-output-format", "mp4",
+                            "--ffmpeg-location", FFMPEG_PATH,
+                            "--cookies-from-browser", "chrome",   // ← Pulls cookies from Chrome at runtime
+                            "--newline", "--progress",
+                            "-o", DOWNLOAD_DIR + "%(title)s.%(ext)s",
+                            url
+                    ));
+
+                    ProcessBuilder pb2 = new ProcessBuilder(commandWithCookies);
+                    pb2.redirectErrorStream(true);
+                    Process process2 = pb2.start();
+
+                    try (BufferedReader reader2 = new BufferedReader(
+                            new InputStreamReader(process2.getInputStream()))) {
+                        String line;
+                        while ((line = reader2.readLine()) != null) {
+                            System.out.println("Progress (with cookies): " + line);
+                            emitter.send(SseEmitter.event().data(line));
+                        }
+                    }
+
+                    int exitCode2 = process2.waitFor();
+
+                    if (exitCode2 != 0) {
+                        emitter.send(SseEmitter.event().data("[ERROR] Download failed even with Chrome cookies."));
+                        emitter.completeWithError(new RuntimeException("Download failed even with Chrome cookies"));
+                        return;
+                    }
+
+                } else if (exitCode != 0) {
+                    // ✅ [CHANGE 6] Non-cookie failure — report error immediately, don't retry
+                    emitter.send(SseEmitter.event().data("[ERROR] Download failed: " + fullOutput));
+                    emitter.completeWithError(new RuntimeException("Download failed: " + fullOutput));
+                    return;
+                }
+
                 emitter.complete();
                 System.out.println("Stream download completed");
 
