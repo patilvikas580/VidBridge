@@ -4,11 +4,11 @@ import com.YTDOWNLOADER.V.Service.VideoDownloadService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
+import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -16,6 +16,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -24,7 +25,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -38,6 +38,7 @@ public class VideoController {
     private static final String DOWNLOAD_DIR = "C:/downloads/";
     private static final String YT_DLP_PATH = "C:/Users/patil/AppData/Local/Microsoft/WinGet/Packages/yt-dlp.yt-dlp_Microsoft.Winget.Source_8wekyb3d8bbwe/yt-dlp.exe";
     private static final String FFMPEG_PATH = "C:/Users/patil/AppData/Local/Microsoft/WinGet/Packages/yt-dlp.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-N-123778-g3b55818764-win64-gpl/bin/ffmpeg.exe";
+    private final ConcurrentMap<String, Path> completedDownloads = new ConcurrentHashMap<>();
 
     // ✅ [CHANGE 1] Helper to detect cookie-related failure from yt-dlp output lines
     private boolean requiresCookies(String output) {
@@ -88,10 +89,10 @@ public class VideoController {
             }
 
             Resource resource = new FileSystemResource(path);
+            String fileName = path.getFileName().toString();
 
             return ResponseEntity.ok()
-                    .header(HttpHeaders.CONTENT_DISPOSITION,
-                            "attachment; filename=\"" + path.getFileName() + "\"")
+                    .header(HttpHeaders.CONTENT_DISPOSITION, buildAttachmentHeader(fileName))
                     .contentType(MediaType.APPLICATION_OCTET_STREAM)
                     .contentLength(Files.size(path))
                     .body(resource);
@@ -103,6 +104,34 @@ public class VideoController {
     }
 
     // ✅ Endpoint 3 - SSE streaming with live progress + cookie fallback
+    @GetMapping("/download/file")
+    public ResponseEntity<Resource> downloadCompletedFile(@RequestParam String name) {
+        try {
+            Path path = completedDownloads.get(name);
+
+            if (path == null) {
+                path = resolveDownloadPath(name);
+            }
+
+            if (path == null || !Files.exists(path)) {
+                return ResponseEntity.notFound().build();
+            }
+
+            Resource resource = new FileSystemResource(path);
+            String fileName = path.getFileName().toString();
+
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_DISPOSITION, buildAttachmentHeader(fileName))
+                    .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                    .contentLength(Files.size(path))
+                    .body(resource);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
     @GetMapping(value = "/download/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter downloadWithProgress(@RequestParam String url) {
         SseEmitter emitter = new SseEmitter(300_000L);
@@ -110,6 +139,10 @@ public class VideoController {
         CompletableFuture.runAsync(() -> {
             try {
                 System.out.println("Stream download started for: " + url);
+                Files.createDirectories(Paths.get(DOWNLOAD_DIR));
+
+                long downloadStartedAt = System.currentTimeMillis();
+                String outputTemplate = DOWNLOAD_DIR + "%(title)s.%(ext)s";
 
                 // ✅ [CHANGE 2] Build base command WITHOUT cookies first
                 List<String> command = new ArrayList<>(Arrays.asList(
@@ -117,8 +150,9 @@ public class VideoController {
                         "--format", "bestvideo+bestaudio/best",
                         "--merge-output-format", "mp4",
                         "--ffmpeg-location", FFMPEG_PATH,
+                        "--force-overwrites",
                         "--newline", "--progress",
-                        "-o", DOWNLOAD_DIR + "%(title)s.%(ext)s",
+                        "-o", outputTemplate,
                         url
                 ));
 
@@ -152,8 +186,9 @@ public class VideoController {
                             "--merge-output-format", "mp4",
                             "--ffmpeg-location", FFMPEG_PATH,
                             "--cookies-from-browser", "chrome",   // ← Pulls cookies from Chrome at runtime
+                            "--force-overwrites",
                             "--newline", "--progress",
-                            "-o", DOWNLOAD_DIR + "%(title)s.%(ext)s",
+                            "-o", outputTemplate,
                             url
                     ));
 
@@ -185,8 +220,12 @@ public class VideoController {
                     return;
                 }
 
+                Path downloadedPath = findDownloadedFile(downloadStartedAt);
+                String fileName = downloadedPath.getFileName().toString();
+                completedDownloads.put(fileName, downloadedPath);
+                emitter.send(SseEmitter.event().name("done").data(fileName));
                 emitter.complete();
-                System.out.println("Stream download completed");
+                System.out.println("Stream download completed: " + downloadedPath);
 
             } catch (Exception e) {
                 e.printStackTrace();
@@ -195,5 +234,41 @@ public class VideoController {
         });
 
         return emitter;
+    }
+
+    private Path findDownloadedFile(long downloadStartedAt) throws Exception {
+        try (java.util.stream.Stream<Path> paths = Files.list(Paths.get(DOWNLOAD_DIR))) {
+            return paths
+                    .filter(p -> p.getFileName().toString().toLowerCase().endsWith(".mp4"))
+                    .filter(p -> lastModifiedMillis(p) >= downloadStartedAt - 2000)
+                    .max((left, right) -> Long.compare(lastModifiedMillis(left), lastModifiedMillis(right)))
+                    .orElseThrow(() -> new RuntimeException("Downloaded file not found"));
+        }
+    }
+
+    private Path resolveDownloadPath(String fileName) {
+        Path downloadDir = Paths.get(DOWNLOAD_DIR).toAbsolutePath().normalize();
+        Path path = downloadDir.resolve(fileName).normalize();
+
+        if (!path.startsWith(downloadDir)) {
+            return null;
+        }
+
+        return path;
+    }
+
+    private String buildAttachmentHeader(String fileName) {
+        return ContentDisposition.attachment()
+                .filename(fileName, StandardCharsets.UTF_8)
+                .build()
+                .toString();
+    }
+
+    private long lastModifiedMillis(Path path) {
+        try {
+            return Files.getLastModifiedTime(path).toMillis();
+        } catch (Exception e) {
+            return 0L;
+        }
     }
 }

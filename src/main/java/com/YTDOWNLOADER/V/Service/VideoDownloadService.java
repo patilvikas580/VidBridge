@@ -37,20 +37,28 @@ public class VideoDownloadService {
 
     public String downloadVideo(String url, String format) throws IOException, InterruptedException {
         Files.createDirectories(Paths.get(DOWNLOAD_DIR));
+        String selectedFormat = (format == null || format.trim().isEmpty())
+                ? "bestvideo+bestaudio/best"
+                : format;
+        long downloadStartedAt = System.currentTimeMillis();
+        String outputTemplate = DOWNLOAD_DIR + "%(title)s.%(ext)s";
 
         // ✅ Step 1 - Snapshot existing files BEFORE download
-        Set<Path> existingFiles = Files.list(Paths.get(DOWNLOAD_DIR))
-                .collect(Collectors.toSet());
+        Set<Path> existingFiles;
+        try (java.util.stream.Stream<Path> paths = Files.list(Paths.get(DOWNLOAD_DIR))) {
+            existingFiles = paths.collect(Collectors.toSet());
+        }
 
         System.out.println("Existing files before download: " + existingFiles.size());
 
         // ✅ Step 2 - Build base command WITHOUT cookies first
         List<String> command = new ArrayList<>(Arrays.asList(
                 YT_DLP_PATH,
-                "--format", "bestvideo+bestaudio/best",
+                "--format", selectedFormat,
                 "--merge-output-format", "mp4",
                 "--ffmpeg-location", FFMPEG_PATH,
-                "--output", DOWNLOAD_DIR + "%(title)s.%(ext)s",
+                "--force-overwrites",
+                "--output", outputTemplate,
                 url
         ));
 
@@ -70,11 +78,12 @@ public class VideoDownloadService {
             // ✅ [CHANGE 3] Build new command WITH --cookies-from-browser chrome
             List<String> commandWithCookies = new ArrayList<>(Arrays.asList(
                     YT_DLP_PATH,
-                    "--format", "bestvideo+bestaudio/best",
+                    "--format", selectedFormat,
                     "--merge-output-format", "mp4",
                     "--ffmpeg-location", FFMPEG_PATH,
                     "--cookies-from-browser", "chrome",       // ← Pulls cookies from Chrome at runtime
-                    "--output", DOWNLOAD_DIR + "%(title)s.%(ext)s",
+                    "--force-overwrites",
+                    "--output", outputTemplate,
                     url
             ));
 
@@ -99,19 +108,42 @@ public class VideoDownloadService {
         }
 
         // ✅ Step 3 - Find the NEW file by comparing before and after
-        Set<Path> newFiles = Files.list(Paths.get(DOWNLOAD_DIR))
-                .collect(Collectors.toSet());
+        Set<Path> newFiles;
+        try (java.util.stream.Stream<Path> paths = Files.list(Paths.get(DOWNLOAD_DIR))) {
+            newFiles = paths.collect(Collectors.toSet());
+        }
 
         newFiles.removeAll(existingFiles);
 
         System.out.println("Newly downloaded files: " + newFiles);
 
         // ✅ Step 4 - Return the newly downloaded file
-        return newFiles.stream()
-                .filter(p -> p.toString().endsWith(".mp4"))
+        Path downloadedPath = newFiles.stream()
+                .filter(p -> p.getFileName().toString().toLowerCase().endsWith(".mp4"))
                 .findFirst()
-                .map(Path::toString)
-                .orElseThrow(() -> new RuntimeException("New file not found after download"));
+                .orElseGet(() -> findDownloadedFile(downloadStartedAt));
+
+        return downloadedPath.toString();
+    }
+
+    private Path findDownloadedFile(long downloadStartedAt) {
+        try (java.util.stream.Stream<Path> paths = Files.list(Paths.get(DOWNLOAD_DIR))) {
+            return paths
+                    .filter(p -> p.getFileName().toString().toLowerCase().endsWith(".mp4"))
+                    .filter(p -> lastModifiedMillis(p) >= downloadStartedAt - 2000)
+                    .max((left, right) -> Long.compare(lastModifiedMillis(left), lastModifiedMillis(right)))
+                    .orElseThrow(() -> new RuntimeException("Downloaded file not found"));
+        } catch (IOException e) {
+            throw new RuntimeException("Unable to find downloaded file", e);
+        }
+    }
+
+    private long lastModifiedMillis(Path path) {
+        try {
+            return Files.getLastModifiedTime(path).toMillis();
+        } catch (IOException e) {
+            return 0L;
+        }
     }
 
     public Map<String, Object> getVideoInfo(String url) throws IOException, InterruptedException {

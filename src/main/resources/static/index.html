@@ -7,9 +7,9 @@
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
   <style>
     :root {
-      --bg: #0a0a0f;
+      --bg: #12121c;
       --surface: #13131a;
-      --border: #1e1e2e;
+      --border: #4d3056;
       --accent: #ff4444;
       --accent2: #ff6b35;
       --danger: #ff4d6d;
@@ -802,11 +802,11 @@
     </div>
 
     <div class="btn-group">
-      <button class="btn btn-download" id="downloadBtn" onclick="startDownload()">
+      <button class="btn btn-download" id="downloadBtn">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         Download
       </button>
-      <button class="btn btn-link" id="linkBtn" onclick="generatePhoneLink()">
+      <button class="btn btn-link" id="linkBtn">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
         Phone Link
       </button>
@@ -1014,15 +1014,23 @@
       // Use SSE stream endpoint to show progress
       const streamUrl = `${SERVER_URL}/api/video/download/stream?url=${encodeURIComponent(url)}`;
       const eventSource = new EventSource(streamUrl);
+      let streamDone = false;
 
       eventSource.onmessage = (event) => {
         updateLog(event.data);
       };
 
+      eventSource.addEventListener('done', (event) => {
+        streamDone = true;
+        eventSource.close();
+        triggerFileDownloadByName(event.data);
+      });
+
       eventSource.onerror = () => {
         eventSource.close();
-        // After stream completes, trigger actual file download
-        triggerFileDownload(url);
+        if (!streamDone) {
+          showError('download failed - check Spring Boot console');
+        }
       };
 
     } catch (err) {
@@ -1030,9 +1038,9 @@
     }
   }
 
-  function triggerFileDownload(url) {
+  function triggerFileDownloadByName(fileName) {
     document.getElementById('progressText').textContent = 'preparing file...';
-    const downloadUrl = `${SERVER_URL}/api/video/download?url=${encodeURIComponent(url)}`;
+    const downloadUrl = `${SERVER_URL}/api/video/download/file?name=${encodeURIComponent(fileName)}`;
 
     // Create invisible anchor to trigger download
     const a = document.createElement('a');
@@ -1057,7 +1065,7 @@
 
     // Get local IP - user needs to use their PC's IP
     // We show instructions and a link using current hostname
-    const phoneUrl = `${SERVER_URL}/api/video/download?url=${encodeURIComponent(url)}`;
+    const phoneUrl = `${PHONE_URL}/api/video/download?url=${encodeURIComponent(url)}`;
 
     document.getElementById('phoneLinkText').value = phoneUrl;
     document.getElementById('phoneLinkBox').classList.add('visible');
