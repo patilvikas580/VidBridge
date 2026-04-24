@@ -708,7 +708,7 @@
       transform: translateY(-1px);
     }
     .dev-topleft-photo {
-      width: 32px; height: 32px; border-radius: 50%;
+      width: 52px; height: 52px; border-radius: 50%;
       object-fit: cover; object-position: center top;
       border: 2px solid var(--c1);
       flex-shrink: 0;
@@ -784,7 +784,7 @@
 <div class="container">
   <div class="header">
     <div class="logo">VidBridge</div>
-    <div class="tagline">Download anything · Bridge every device</div>
+    <div class="tagline">Your video, one click away</div>
   </div>
 
   <div class="card" id="mainCard">
@@ -856,11 +856,36 @@
   </div>
 
   <div class="footer">
-    powered by <span style="color:var(--c1)">yt-dlp</span> · <span style="color:var(--c4)">Spring Boot</span> · <span style="color:var(--c2)">ffmpeg</span>
-    <br/>
     <div class="ip-badge">
       <div class="ip-dot"></div>
       <span id="serverStatus">connecting to localhost:8080</span>
+    </div>
+    <br/>
+    <br/>
+    Built With: <span style="color:var(--c1)">Java 8</span> · <span style="color:var(--c4)">Spring Boot</span> · <span style="color:var(--c2)">yt-dlp</span> . <span style="color:var(--c1)">ffmpeg</span>
+    <div style="margin-top:14px; display:flex; gap:18px; justify-content:center; flex-wrap:wrap; font-size:11px; letter-spacing:1px;">
+      Follow me on:
+      <a href="https://www.linkedin.com/in/vikas-patil-489317166/" target="_blank"
+         style="color:var(--c4); text-decoration:none; display:flex; align-items:center; gap:6px;
+       text-shadow: 0 0 6px var(--c4);">
+
+        <i class="fab fa-linkedin"></i> LinkedIn
+      </a>
+
+      <a href="https://github.com/patilvikas580" target="_blank"
+         style="color:var(--text); text-decoration:none; display:flex; align-items:center; gap:6px;
+       text-shadow: 0 0 6px var(--text);">
+
+        <i class="fab fa-github"></i> GitHub
+      </a>
+
+      <a href="https://leetcode.com/u/patilvikas580/" target="_blank"
+         style="color:var(--c6); text-decoration:none; display:flex; align-items:center; gap:6px;
+       text-shadow: 0 0 6px var(--c6);">
+
+        <i class="fas fa-code"></i> LeetCode
+      </a>
+
     </div>
   </div>
 
@@ -878,6 +903,7 @@
 
   // Update server status
   document.getElementById('serverStatus').textContent = `server: ${SERVER_IP}:8080`;
+
 
   function onInputChange() {
     const val = document.getElementById('urlInput').value;
@@ -1126,4 +1152,3 @@
 </script>
 </body>
 </html>
-```
