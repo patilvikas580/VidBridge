@@ -59,11 +59,19 @@ public class VideoController {
     public ResponseEntity<?> getInfo(@RequestParam String url) {
         try {
             Map<String, Object> info = service.getVideoInfo(url);
-            double seconds = ((Number) info.getOrDefault("duration", 0)).intValue();
-            String formattedDuration = (seconds / 60) + " Min";
+            int seconds = ((Number) info.getOrDefault("duration", 0)).intValue();
+
+            int minutes = seconds / 60;
+            int remainingSeconds = seconds % 60;
+
+            String duration = minutes + " Min " + remainingSeconds + " Sec";
+
             return ResponseEntity.ok(Map.of(
-                    "title",    info.get("title"),
-                    "duration", formattedDuration
+                    "title", info.get("title"),
+                    "duration", duration,
+                    "uploader", info.getOrDefault("uploader", "N/A"),
+                    "format", info.getOrDefault("ext", "mp4"),
+                    "filesize", info.getOrDefault("filesize", "unknown")
             ));
         } catch (Exception e) {
             e.printStackTrace();
@@ -106,7 +114,8 @@ public class VideoController {
     // ✅ Endpoint 3 - SSE streaming with live progress + cookie fallback
     @GetMapping("/download/file")
     public ResponseEntity<Resource> downloadCompletedFile(@RequestParam String name) {
-        try {
+        try
+        {
             Path path = completedDownloads.get(name);
 
             if (path == null) {
@@ -176,7 +185,7 @@ public class VideoController {
 
                 // ✅ [CHANGE 4] If first attempt failed due to cookies, retry with Chrome cookies
                 if (exitCode != 0 && requiresCookies(fullOutput.toString())) {
-                    System.out.println("Stream download failed due to cookies. Retrying with Chrome cookies...");
+                    System.out.println("File downloading failed due to absence of cookies. Retrying with Chrome cookies...");
                     emitter.send(SseEmitter.event().data("[INFO] Authentication required. Retrying with Chrome cookies..."));
 
                     // ✅ [CHANGE 5] New command WITH --cookies-from-browser chrome
