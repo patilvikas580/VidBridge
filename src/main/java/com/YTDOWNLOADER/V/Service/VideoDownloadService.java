@@ -37,12 +37,14 @@ public class VideoDownloadService {
 
     public String downloadVideo(String url, String format) throws IOException, InterruptedException {
         Files.createDirectories(Paths.get(DOWNLOAD_DIR));
-        String selectedFormat;
+        String videoQuality;
+
         if (format == null || format.trim().length() == 0) {
-            selectedFormat = "bestvideo+bestaudio/best";
+            videoQuality = "bestvideo+bestaudio/best";
         } else {
-            selectedFormat = format;
+            videoQuality = format;
         }
+
         long downloadStartedAt = System.currentTimeMillis();
         String outputTemplate = DOWNLOAD_DIR + "%(title)s.%(ext)s";
 
@@ -57,7 +59,7 @@ public class VideoDownloadService {
         // ✅ Step 2 - Build base command WITHOUT cookies first
         List<String> command = new ArrayList<>(Arrays.asList(
                 YT_DLP_PATH,
-                "--format", selectedFormat,
+                "--format", videoQuality,
                 "--merge-output-format", "mp4",
                 "--ffmpeg-location", FFMPEG_PATH,
                 "--force-overwrites",
@@ -81,7 +83,7 @@ public class VideoDownloadService {
             // ✅ [CHANGE 3] Build new command WITH --cookies-from-browser chrome
             List<String> commandWithCookies = new ArrayList<>(Arrays.asList(
                     YT_DLP_PATH,
-                    "--format", selectedFormat,
+                    "--format", videoQuality,
                     "--merge-output-format", "mp4",
                     "--ffmpeg-location", FFMPEG_PATH,
                     "--cookies-from-browser", "chrome",       // ← Pulls cookies from Chrome at runtime
@@ -121,10 +123,23 @@ public class VideoDownloadService {
         System.out.println("Newly downloaded files: " + newFiles);
 
         // ✅ Step 4 - Return the newly downloaded file
-        Path downloadedPath = newFiles.stream()
-                .filter(p -> p.getFileName().toString().toLowerCase().endsWith(".mp4"))
-                .findFirst()
-                .orElseGet(() -> findDownloadedFile(downloadStartedAt));
+        Path downloadedPath = null;
+
+// Step 1: loop through files
+        for (Path p : newFiles) {
+            String fileName = p.getFileName().toString().toLowerCase();
+
+            // Step 2: check if it's an mp4 file
+            if (fileName.endsWith(".mp4")) {
+                downloadedPath = p;
+                break; // stop at first match
+            }
+        }
+
+// Step 3: if not found, fallback
+        if (downloadedPath == null) {
+            downloadedPath = findDownloadedFile(downloadStartedAt);
+        }
 
         return downloadedPath.toString();
     }
