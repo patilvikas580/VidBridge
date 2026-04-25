@@ -37,9 +37,12 @@ public class VideoDownloadService {
 
     public String downloadVideo(String url, String format) throws IOException, InterruptedException {
         Files.createDirectories(Paths.get(DOWNLOAD_DIR));
-        String selectedFormat = (format == null || format.trim().isEmpty())
-                ? "bestvideo+bestaudio/best"
-                : format;
+        String selectedFormat;
+        if (format == null || format.trim().length() == 0) {
+            selectedFormat = "bestvideo+bestaudio/best";
+        } else {
+            selectedFormat = format;
+        }
         long downloadStartedAt = System.currentTimeMillis();
         String outputTemplate = DOWNLOAD_DIR + "%(title)s.%(ext)s";
 
