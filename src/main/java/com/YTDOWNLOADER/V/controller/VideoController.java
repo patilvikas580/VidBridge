@@ -49,13 +49,12 @@ public class VideoController {
     private final ConcurrentMap<String, Path> completedDownloads = new ConcurrentHashMap<>();
 
 
-    // ✅ Endpoint 1 - Get video info (delegates to service which handles cookie fallback)
+    // Get video info (delegates to service which handles cookie fallback)
     @GetMapping("/info")
     public ResponseEntity<?> getInfo(@RequestParam String url) {
         try {
             Map<String, Object> info = service.getVideoInfo(url);
             int seconds = ((Number) info.getOrDefault("duration", 0)).intValue();
-
             int minutes = seconds / 60;
             int remainingSeconds = seconds % 60;
 
@@ -74,7 +73,7 @@ public class VideoController {
         }
     }
 
-    // ✅ Endpoint 2 - Download video (delegates to service which handles cookie fallback)
+    // Download video (delegates to service which handles cookie fallback)
     @GetMapping("/download")
     public ResponseEntity<Resource> download( @RequestParam String url, @RequestParam(defaultValue = "bestvideo+bestaudio/best") String format) {
         try {
@@ -104,7 +103,7 @@ public class VideoController {
         }
     }
 
-    // ✅ Endpoint 3 - SSE streaming with live progress + cookie fallback
+    //Return HTTP response for "/download/stream" called through JS
     @GetMapping("/download/file")
     public ResponseEntity<Resource> downloadCompletedFile(@RequestParam String name) {
         try
@@ -134,6 +133,7 @@ public class VideoController {
         }
     }
 
+    //SSE streaming with live progress + cookie fallback
     @GetMapping(value = "/download/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter downloadWithProgress(@RequestParam String url) {
         SseEmitter emitter = new SseEmitter(300_000L);
@@ -146,7 +146,7 @@ public class VideoController {
                 long downloadStartedAt = System.currentTimeMillis();
                 String outputTemplate = DOWNLOAD_DIR + "%(title)s.%(ext)s";
 
-                // ✅ [CHANGE 2] Build base command WITHOUT cookies first
+                // command Without cookies first
                 List<String> command = new ArrayList<>(Arrays.asList(
                         YT_DLP_PATH,
                         "--format", "bestvideo+bestaudio/best",
@@ -162,7 +162,7 @@ public class VideoController {
                 pb.redirectErrorStream(true);
                 Process process = pb.start();
 
-                // ✅ [CHANGE 3] Collect all output lines AND stream them to SSE client
+                // Collect all output lines AND stream them to SSE client
                 StringBuilder fullOutput = new StringBuilder();
                 try (BufferedReader reader = new BufferedReader(
                         new InputStreamReader(process.getInputStream()))) {
@@ -176,19 +176,19 @@ public class VideoController {
 
                 int exitCode = process.waitFor();
 
-                // ✅ [CHANGE 4] If first attempt failed due to cookies, retry with Chrome cookies
+                // If first attempt failed due to cookies, retry with Chrome cookies
                 if (exitCode != 0 && service.requiresCookies(fullOutput.toString()))
                 {
                     System.out.println("File downloading failed due to absence of cookies. Retrying with Chrome cookies...");
                     emitter.send(SseEmitter.event().data("[INFO] Authentication required. Retrying with Chrome cookies..."));
 
-                    // ✅ [CHANGE 5] New command WITH --cookies-from-browser chrome
+                    //  command with cookies from browser chrome
                     List<String> commandWithCookies = new ArrayList<>(Arrays.asList(
                             YT_DLP_PATH,
                             "--format", "bestvideo+bestaudio/best",
                             "--merge-output-format", "mp4",
                             "--ffmpeg-location", FFMPEG_PATH,
-                            "--cookies-from-browser", "chrome",   // ← Pulls cookies from Chrome at runtime
+                            "--cookies-from-browser", "chrome",
                             "--force-overwrites",
                             "--newline", "--progress",
                             "-o", outputTemplate,
@@ -217,7 +217,7 @@ public class VideoController {
                     }
 
                 } else if (exitCode != 0) {
-                    // ✅ [CHANGE 6] Non-cookie failure — report error immediately, don't retry
+                    //  Non-cookie failure
                     emitter.send(SseEmitter.event().data("[ERROR] Download failed: " + fullOutput));
                     emitter.completeWithError(new RuntimeException("Download failed: " + fullOutput));
                     return;
@@ -228,17 +228,17 @@ public class VideoController {
                 completedDownloads.put(fileName, downloadedPath);
                 emitter.send(SseEmitter.event().name("done").data(fileName));
                 emitter.complete();
-                System.out.println("Stream download completed: " + downloadedPath);
+                System.out.println("File download completed: " + downloadedPath);
 
             } catch (Exception e) {
                 e.printStackTrace();
                 emitter.completeWithError(e);
             }
         });
-
         return emitter;
     }
 
+    //Security layer
     private Path resolveDownloadPath(String fileName) {
         Path downloadDir = Paths.get(DOWNLOAD_DIR).toAbsolutePath().normalize();
         Path path = downloadDir.resolve(fileName).normalize();
