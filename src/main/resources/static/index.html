@@ -1103,15 +1103,45 @@
 
   function copyLink() {
     const text = document.getElementById('phoneLinkText').value;
-    navigator.clipboard.writeText(text).then(() => {
-      const btn = document.getElementById('copyBtn');
+    const btn = document.getElementById('copyBtn');
+
+    function onCopied() {
       btn.textContent = 'Copied!';
       btn.classList.add('copied');
       setTimeout(() => {
         btn.textContent = 'Copy';
         btn.classList.remove('copied');
       }, 2000);
-    });
+    }
+
+    // Use modern Clipboard API if available (requires HTTPS or localhost)
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(onCopied).catch(() => {
+        // Fallback if clipboard API is blocked
+        fallbackCopy(text, onCopied);
+      });
+    } else {
+      fallbackCopy(text, onCopied);
+    }
+  }
+
+  function fallbackCopy(text, callback) {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.top = '0';
+    textarea.style.left = '0';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    try {
+      document.execCommand('copy');
+      if (callback) callback();
+    } catch (err) {
+      console.error('Copy failed:', err);
+    }
+    document.body.removeChild(textarea);
   }
 
   // Add click handlers with ripple

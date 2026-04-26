@@ -2,6 +2,7 @@ package com.YTDOWNLOADER.V.controller;
 
 import com.YTDOWNLOADER.V.Service.VideoDownloadService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ContentDisposition;
@@ -20,7 +21,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -32,33 +36,25 @@ public class VideoController {
     @Autowired
     private VideoDownloadService service;
 
-    private static final String DOWNLOAD_DIR = "C:/downloads/";
-    private static final String YT_DLP_PATH = "C:/Users/patil/AppData/Local/Microsoft/WinGet/Packages/yt-dlp.yt-dlp_Microsoft.Winget.Source_8wekyb3d8bbwe/yt-dlp.exe";
-    private static final String FFMPEG_PATH = "C:/Users/patil/AppData/Local/Microsoft/WinGet/Packages/yt-dlp.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-N-123778-g3b55818764-win64-gpl/bin/ffmpeg.exe";
+    @Value("${app.download.dir}")
+    private String DOWNLOAD_DIR;
+
+    @Value("${app.yt-dlp.path}")
+    private String YT_DLP_PATH;
+
+    @Value("${app.ffmpeg.path}")
+    private String FFMPEG_PATH;
+
+
     private final ConcurrentMap<String, Path> completedDownloads = new ConcurrentHashMap<>();
 
-    // ✅ [CHANGE 1] Helper to detect cookie-related failure from yt-dlp output lines
-    private boolean requiresCookies(String output) {
-        String lowerOutput = output.toLowerCase();
-        return lowerOutput.contains("sign in")
-                || lowerOutput.contains("login")
-                || lowerOutput.contains("cookies")
-                || lowerOutput.contains("this video is private")
-                || lowerOutput.contains("age-restricted")
-                || lowerOutput.contains("members only")
-                || lowerOutput.contains("http error 403")
-                || lowerOutput.contains("confirm your age")
-                || lowerOutput.contains("private video");
-    }
 
-    // ✅ Endpoint 1 - Get video info (delegates to service which handles cookie fallback)
+    // Get video info (delegates to service which handles cookie fallback)
     @GetMapping("/info")
     public ResponseEntity<?> getInfo(@RequestParam String url) {
         try {
-            LinkedHashMap<String, Object> info = (LinkedHashMap<String, Object>) service.getVideoInfo(url);
-
+            Map<String, Object> info = service.getVideoInfo(url);
             int seconds = ((Number) info.getOrDefault("duration", 0)).intValue();
-
             int minutes = seconds / 60;
             int remainingSeconds = seconds % 60;
 
@@ -77,11 +73,9 @@ public class VideoController {
         }
     }
 
-    // ✅ Endpoint 2 - Download video (delegates to service which handles cookie fallback)
+    // Download video (delegates to service which handles cookie fallback)
     @GetMapping("/download")
-    public ResponseEntity<Resource> download(
-            @RequestParam String url,
-            @RequestParam(defaultValue = "bestvideo+bestaudio/best") String format) {
+    public ResponseEntity<Resource> download( @RequestParam String url, @RequestParam(defaultValue = "bestvideo+bestaudio/best") String format) {
         try {
             System.out.println("Download request received for: " + url);
 
@@ -109,10 +103,11 @@ public class VideoController {
         }
     }
 
-    // ✅ Endpoint 3 - SSE streaming with live progress + cookie fallback
+    //Return HTTP response for "/download/stream" called through JS
     @GetMapping("/download/file")
     public ResponseEntity<Resource> downloadCompletedFile(@RequestParam String name) {
-        try {
+        try
+        {
             Path path = completedDownloads.get(name);
 
             if (path == null) {
@@ -138,6 +133,7 @@ public class VideoController {
         }
     }
 
+    //SSE streaming with live progress + cookie fallback
     @GetMapping(value = "/download/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter downloadWithProgress(@RequestParam String url) {
         SseEmitter emitter = new SseEmitter(300_000L);
@@ -150,7 +146,7 @@ public class VideoController {
                 long downloadStartedAt = System.currentTimeMillis();
                 String outputTemplate = DOWNLOAD_DIR + "%(title)s.%(ext)s";
 
-                // ✅ [CHANGE 2] Build base command WITHOUT cookies first
+                // command Without cookies first
                 List<String> command = new ArrayList<>(Arrays.asList(
                         YT_DLP_PATH,
                         "--format", "bestvideo+bestaudio/best",
@@ -166,7 +162,7 @@ public class VideoController {
                 pb.redirectErrorStream(true);
                 Process process = pb.start();
 
-                // ✅ [CHANGE 3] Collect all output lines AND stream them to SSE client
+                // Collect all output lines AND stream them to SSE client
                 StringBuilder fullOutput = new StringBuilder();
                 try (BufferedReader reader = new BufferedReader(
                         new InputStreamReader(process.getInputStream()))) {
@@ -180,18 +176,19 @@ public class VideoController {
 
                 int exitCode = process.waitFor();
 
-                // ✅ [CHANGE 4] If first attempt failed due to cookies, retry with Chrome cookies
-                if (exitCode != 0 && requiresCookies(fullOutput.toString())) {
-                    System.out.println("Stream download failed due to cookies. Retrying with Chrome cookies...");
+                // If first attempt failed due to cookies, retry with Chrome cookies
+                if (exitCode != 0 && service.requiresCookies(fullOutput.toString()))
+                {
+                    System.out.println("File downloading failed due to absence of cookies. Retrying with Chrome cookies...");
                     emitter.send(SseEmitter.event().data("[INFO] Authentication required. Retrying with Chrome cookies..."));
 
-                    // ✅ [CHANGE 5] New command WITH --cookies-from-browser chrome
+                    //  command with cookies from browser chrome
                     List<String> commandWithCookies = new ArrayList<>(Arrays.asList(
                             YT_DLP_PATH,
                             "--format", "bestvideo+bestaudio/best",
                             "--merge-output-format", "mp4",
                             "--ffmpeg-location", FFMPEG_PATH,
-                            "--cookies-from-browser", "chrome",   // ← Pulls cookies from Chrome at runtime
+                            "--cookies-from-browser", "chrome",
                             "--force-overwrites",
                             "--newline", "--progress",
                             "-o", outputTemplate,
@@ -220,38 +217,28 @@ public class VideoController {
                     }
 
                 } else if (exitCode != 0) {
-                    // ✅ [CHANGE 6] Non-cookie failure — report error immediately, don't retry
+                    //  Non-cookie failure
                     emitter.send(SseEmitter.event().data("[ERROR] Download failed: " + fullOutput));
                     emitter.completeWithError(new RuntimeException("Download failed: " + fullOutput));
                     return;
                 }
 
-                Path downloadedPath = findDownloadedFile(downloadStartedAt);
+                Path downloadedPath = service.findDownloadedFile(downloadStartedAt);
                 String fileName = downloadedPath.getFileName().toString();
                 completedDownloads.put(fileName, downloadedPath);
                 emitter.send(SseEmitter.event().name("done").data(fileName));
                 emitter.complete();
-                System.out.println("Stream download completed: " + downloadedPath);
+                System.out.println("File download completed: " + downloadedPath);
 
             } catch (Exception e) {
                 e.printStackTrace();
                 emitter.completeWithError(e);
             }
         });
-
         return emitter;
     }
 
-    private Path findDownloadedFile(long downloadStartedAt) throws Exception {
-        try (java.util.stream.Stream<Path> paths = Files.list(Paths.get(DOWNLOAD_DIR))) {
-            return paths
-                    .filter(p -> p.getFileName().toString().toLowerCase().endsWith(".mp4"))
-                    .filter(p -> lastModifiedMillis(p) >= downloadStartedAt - 2000)
-                    .max((left, right) -> Long.compare(lastModifiedMillis(left), lastModifiedMillis(right)))
-                    .orElseThrow(() -> new RuntimeException("Downloaded file not found"));
-        }
-    }
-
+    //Security layer
     private Path resolveDownloadPath(String fileName) {
         Path downloadDir = Paths.get(DOWNLOAD_DIR).toAbsolutePath().normalize();
         Path path = downloadDir.resolve(fileName).normalize();
@@ -268,13 +255,5 @@ public class VideoController {
                 .filename(fileName, StandardCharsets.UTF_8)
                 .build()
                 .toString();
-    }
-
-    private long lastModifiedMillis(Path path) {
-        try {
-            return Files.getLastModifiedTime(path).toMillis();
-        } catch (Exception e) {
-            return 0L;
-        }
     }
 }

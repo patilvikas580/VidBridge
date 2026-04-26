@@ -1,6 +1,7 @@
 package com.YTDOWNLOADER.V.Service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -17,44 +18,53 @@ import java.util.stream.Collectors;
 @Service
 public class VideoDownloadService {
 
-    private static final String DOWNLOAD_DIR = "C:/downloads/";
-    private static final String YT_DLP_PATH = "C:/Users/patil/AppData/Local/Microsoft/WinGet/Packages/yt-dlp.yt-dlp_Microsoft.Winget.Source_8wekyb3d8bbwe/yt-dlp.exe";
-    private static final String FFMPEG_PATH = "C:/Users/patil/AppData/Local/Microsoft/WinGet/Packages/yt-dlp.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-N-123778-g3b55818764-win64-gpl/bin/ffmpeg.exe";
+    @Value("${app.download.dir}")
+    private String DOWNLOAD_DIR;
 
-    // ✅ [CHANGE 1] Helper method to check if output indicates a cookies-related failure
-    private boolean requiresCookies(String output) {
-        String lowerOutput = output.toLowerCase();
-        return lowerOutput.contains("sign in")
-                || lowerOutput.contains("login")
-                || lowerOutput.contains("cookies")
-                || lowerOutput.contains("this video is private")
-                || lowerOutput.contains("age-restricted")
-                || lowerOutput.contains("members only")
-                || lowerOutput.contains("http error 403")
-                || lowerOutput.contains("confirm your age")
-                || lowerOutput.contains("private video");
+    @Value("${app.yt-dlp.path}")
+    private String YT_DLP_PATH;
+
+    @Value("${app.ffmpeg.path}")
+    private String FFMPEG_PATH;
+
+    //  Method to check if output indicates a cookies-related failure
+    public boolean requiresCookies(String output) {
+        String urlInfo = output.toLowerCase();
+        return urlInfo.contains("sign in")
+                || urlInfo.contains("login")
+                || urlInfo.contains("cookies")
+                || urlInfo.contains("this video is private")
+                || urlInfo.contains("age-restricted")
+                || urlInfo.contains("members only")
+                || urlInfo.contains("http error 403")
+                || urlInfo.contains("confirm your age")
+                || urlInfo.contains("private video");
     }
 
+    //Download method for PostMan testing and Direct download from phone
     public String downloadVideo(String url, String format) throws IOException, InterruptedException {
         Files.createDirectories(Paths.get(DOWNLOAD_DIR));
-        String selectedFormat = (format == null || format.trim().isEmpty())
-                ? "bestvideo+bestaudio/best"
-                : format;
+        String videoQuality;
+        if (format == null || format.trim().length() == 0) {
+            videoQuality = "bestvideo+bestaudio/best";
+        } else {
+            videoQuality = format;
+        }
+
         long downloadStartedAt = System.currentTimeMillis();
         String outputTemplate = DOWNLOAD_DIR + "%(title)s.%(ext)s";
 
-        // ✅ Step 1 - Snapshot existing files BEFORE download
+        // Store existing files in Map Before download
         Set<Path> existingFiles;
         try (java.util.stream.Stream<Path> paths = Files.list(Paths.get(DOWNLOAD_DIR))) {
             existingFiles = paths.collect(Collectors.toSet());
         }
+//        System.out.println("Existing files before download: " + existingFiles.size());
 
-        System.out.println("Existing files before download: " + existingFiles.size());
-
-        // ✅ Step 2 - Build base command WITHOUT cookies first
+        // Try downloading video without cookies
         List<String> command = new ArrayList<>(Arrays.asList(
                 YT_DLP_PATH,
-                "--format", selectedFormat,
+                "--format", videoQuality,
                 "--merge-output-format", "mp4",
                 "--ffmpeg-location", FFMPEG_PATH,
                 "--force-overwrites",
@@ -69,19 +79,19 @@ public class VideoDownloadService {
         String output = new String(process.getInputStream().readAllBytes());
         int exitCode = process.waitFor();
 
-        System.out.println("yt-dlp output (attempt 1 - no cookies): " + output);
 
-        // ✅ [CHANGE 2] If download failed AND the reason seems cookie-related, retry with cookies from Chrome
-        if (exitCode != 0 && requiresCookies(output)) {
+        // If download failed and the reason seems cookie-related, retry with cookies from Chrome
+        if (exitCode != 0 && requiresCookies(output))
+        {
             System.out.println("Download failed due to authentication/cookies. Retrying with Chrome cookies...");
 
-            // ✅ [CHANGE 3] Build new command WITH --cookies-from-browser chrome
+            // command with cookies
             List<String> commandWithCookies = new ArrayList<>(Arrays.asList(
                     YT_DLP_PATH,
-                    "--format", selectedFormat,
+                    "--format", videoQuality,
                     "--merge-output-format", "mp4",
                     "--ffmpeg-location", FFMPEG_PATH,
-                    "--cookies-from-browser", "chrome",       // ← Pulls cookies from Chrome at runtime
+                    "--cookies-from-browser", "chrome",
                     "--force-overwrites",
                     "--output", outputTemplate,
                     url
@@ -94,20 +104,21 @@ public class VideoDownloadService {
             String output2 = new String(process2.getInputStream().readAllBytes());
             int exitCode2 = process2.waitFor();
 
-            System.out.println("yt-dlp output (attempt 2 - with Chrome cookies): " + output2);
+
 
             if (exitCode2 != 0) {
                 throw new RuntimeException("Download failed even with Chrome cookies: " + output2);
             }
 
-        } else if (exitCode != 0) {
-            // ✅ [CHANGE 4] Non-cookie failure — throw immediately, no point retrying with cookies
-            throw new RuntimeException("Download failed: " + output);
+        }
+        else if (exitCode != 0) {
+            //even if cookies failed
+            throw new RuntimeException("Download failed : " + output);
         } else {
             System.out.println("Download succeeded without cookies.");
         }
 
-        // ✅ Step 3 - Find the NEW file by comparing before and after
+        // Find the new file by comparing map before and after
         Set<Path> newFiles;
         try (java.util.stream.Stream<Path> paths = Files.list(Paths.get(DOWNLOAD_DIR))) {
             newFiles = paths.collect(Collectors.toSet());
@@ -115,18 +126,26 @@ public class VideoDownloadService {
 
         newFiles.removeAll(existingFiles);
 
-        System.out.println("Newly downloaded files: " + newFiles);
+        Path downloadedPath = null;
 
-        // ✅ Step 4 - Return the newly downloaded file
-        Path downloadedPath = newFiles.stream()
-                .filter(p -> p.getFileName().toString().toLowerCase().endsWith(".mp4"))
-                .findFirst()
-                .orElseGet(() -> findDownloadedFile(downloadStartedAt));
+        for (Path p : newFiles) {
+            String fileName = p.getFileName().toString().toLowerCase();
 
+            // Step 2: check if it's a mp4 file
+            if (fileName.endsWith(".mp4")) {
+                downloadedPath = p;
+                break;
+            }
+        }
+    //  if not found, fallback
+        if (downloadedPath == null) {
+            downloadedPath = findDownloadedFile(downloadStartedAt);
+        }
         return downloadedPath.toString();
     }
 
-    private Path findDownloadedFile(long downloadStartedAt) {
+    //Provide Download path to SSE Emmiter(/Strem endpoint) and in case of failure to find  Provides download path to downloadVideo function
+    public Path findDownloadedFile(long downloadStartedAt) {
         try (java.util.stream.Stream<Path> paths = Files.list(Paths.get(DOWNLOAD_DIR))) {
             return paths
                     .filter(p -> p.getFileName().toString().toLowerCase().endsWith(".mp4"))
@@ -138,6 +157,7 @@ public class VideoDownloadService {
         }
     }
 
+    //helper function
     private long lastModifiedMillis(Path path) {
         try {
             return Files.getLastModifiedTime(path).toMillis();
@@ -146,13 +166,11 @@ public class VideoDownloadService {
         }
     }
 
+    //Function to retrieve video info mapped - with controller
     public Map<String, Object> getVideoInfo(String url) throws IOException, InterruptedException {
 
-        // ✅ [CHANGE 5] Try fetching video info WITHOUT cookies first
-        List<String> command = new ArrayList<>(Arrays.asList(
-                YT_DLP_PATH,
-                "--dump-json", "--no-download", url
-        ));
+        //Try fetching video info without cookies first
+        List<String> command = new ArrayList<>(Arrays.asList(YT_DLP_PATH, "--dump-json", "--no-download", url));
 
         ProcessBuilder pb = new ProcessBuilder(command);
         pb.redirectErrorStream(true);
@@ -161,18 +179,14 @@ public class VideoDownloadService {
         String json = new String(process.getInputStream().readAllBytes());
         int exitCode = process.waitFor();
 
-        System.out.println("Video info fetch attempt 1 (no cookies) exit code: " + exitCode);
+//        System.out.println("Video info fetch attempt 1 (no cookies) : " + exitCode);
 
-        // ✅ [CHANGE 6] If info fetch failed due to cookies, retry with Chrome cookies
+        // If info fetch failed due to cookies, retry with Chrome cookies
         if (exitCode != 0 && requiresCookies(json)) {
             System.out.println("Video info fetch failed due to authentication. Retrying with Chrome cookies...");
 
-            List<String> commandWithCookies = new ArrayList<>(Arrays.asList(
-                    YT_DLP_PATH,
-                    "--dump-json", "--no-download",
-                    "--cookies-from-browser", "chrome",       // ← Pulls cookies from Chrome at runtime
-                    url
-            ));
+        //Attached cookies in command
+            List<String> commandWithCookies = new ArrayList<>(Arrays.asList(YT_DLP_PATH, "--dump-json", "--no-download", "--cookies-from-browser", "chrome", url));
 
             ProcessBuilder pb2 = new ProcessBuilder(commandWithCookies);
             pb2.redirectErrorStream(true);
@@ -180,8 +194,6 @@ public class VideoDownloadService {
 
             json = new String(process2.getInputStream().readAllBytes());
             int exitCode2 = process2.waitFor();
-
-            System.out.println("Video info fetch attempt 2 (with Chrome cookies) exit code: " + exitCode2);
 
             if (exitCode2 != 0) {
                 throw new RuntimeException("Failed to fetch video info even with Chrome cookies: " + json);
