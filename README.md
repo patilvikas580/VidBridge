@@ -39,7 +39,7 @@
  <img width="1110" height="813" alt="Screenshot 2026-04-24 220133" src="https://github.com/user-attachments/assets/baf1ed06-7d7b-432a-a9b7-5256d4051c52" />
   <img width="1110" height="907" alt="Screenshot 2026-04-24 220334" src="https://github.com/user-attachments/assets/73f47eb5-5681-4dd3-a561-8322637fcf6a" />
 
-
+> _Other ScreenShots_
 <img width="846" height="435" alt="Screenshot 2026-04-24 215824" src="https://github.com/user-attachments/assets/7b552fd4-3815-49e5-a9ee-80fe53bf6d4a" />
 <img width="1893" height="848" alt="Screenshot 2026-04-24 220447" src="https://github.com/user-attachments/assets/acaf0eb4-077a-48df-a4ac-926c353403a8" />
 <img width="1607" height="866" alt="Screenshot 2026-04-24 220259" src="https://github.com/user-attachments/assets/8d2e6dd1-2958-44c5-b89f-d34ce31c82a6" />
@@ -78,25 +78,6 @@ The frontend was kept intentionally minimal (AI-generated HTML) since the primar
 | Boilerplate Reduction | Lombok |
 | API Testing | Postman |
 | Frontend | HTML (AI-generated, minimal) |
-
----
-
-## 🏗️ Project Structure
-
-```
-VidBridge/
-├── src/
-│   └── main/
-│       ├── java/com/YTDOWNLOADER/V/
-│       │   ├── controller/        # REST Controllers
-│       │   ├── service/           # Business logic & yt-dlp process handling
-│       │   └── model/             # Request/Response models (Lombok)
-│       └── resources/
-│           ├── static/            # Frontend HTML (AI-generated)
-│           └── application.properties
-├── pom.xml
-└── README.md
-```
 
 ---
 
