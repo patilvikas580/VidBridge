@@ -30,11 +30,7 @@
 ## 📸 Screenshots
 
 > _Home Page_
-> ```
 <img width="1887" height="858" alt="Home P" src="https://github.com/user-attachments/assets/cf229eb5-6006-49fa-90d4-89263c433414" />
-
-> ```
-
 > _Download_
 > ```
 <img width="1001" height="772" alt="DDownload" src="https://github.com/user-attachments/assets/7be5515c-23c4-41c0-8c17-0aee51b7b109" />
